@@ -55,6 +55,16 @@ services:
     environment:
       - NODE_ENV=production
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kargo-frontend
+    ports:
+      - "8080:80"
+    networks:
+      - kargo_network
+
 volumes:
   mongodb_data:
 

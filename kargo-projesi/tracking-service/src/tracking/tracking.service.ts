@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
@@ -17,38 +16,42 @@ export class TrackingService {
 
   constructor(private readonly httpService: HttpService) {}
 
-  @Cron('*/5 * * * * *') // Runs every 5 seconds
-  async handleCron() {
+  async advancePackage(id: string) {
     try {
-      // Fetch non-delivered packages
       const response = await firstValueFrom(
-        this.httpService.get(`${this.packageServiceUrl}/not-delivered`)
+        this.httpService.get(`${this.packageServiceUrl}/${id}`)
       );
       
-      const packages = response.data;
-      if (!packages || packages.length === 0) {
-        return;
+      const pkg = response.data;
+      if (!pkg) {
+        throw new NotFoundException(`Package ${id} not found`);
       }
 
-      for (const pkg of packages) {
-        const nextStatus = this.statusFlow[pkg.status];
-        if (nextStatus) {
-          // Update status in package-service
-          await firstValueFrom(
-            this.httpService.put(`${this.packageServiceUrl}/${pkg.id}/status`, {
-              status: nextStatus,
-            })
-          );
-          this.logger.log(`Package ${pkg.id} status updated to: ${nextStatus}`);
+      if (pkg.status === 'Teslim Edildi') {
+        return { message: 'Package is already delivered', pkg };
+      }
 
-          // Trigger notification if delivered
-          if (nextStatus === 'Teslim Edildi') {
-            await this.notifyDelivery(pkg);
-          }
+      const nextStatus = this.statusFlow[pkg.status];
+      if (nextStatus) {
+        const updateResponse = await firstValueFrom(
+          this.httpService.put(`${this.packageServiceUrl}/${pkg.id || pkg._id}/status`, {
+            status: nextStatus,
+          })
+        );
+        this.logger.log(`Package ${id} status updated to: ${nextStatus}`);
+        
+        const updatedPkg = updateResponse.data;
+
+        if (nextStatus === 'Teslim Edildi') {
+          await this.notifyDelivery(updatedPkg);
         }
+
+        return updatedPkg;
       }
+      return pkg;
     } catch (error) {
-      this.logger.error('Error in tracking cron job:', error.message);
+      this.logger.error(`Error advancing package ${id}:`, error.message);
+      throw error;
     }
   }
 
@@ -56,14 +59,14 @@ export class TrackingService {
     try {
       await firstValueFrom(
         this.httpService.post(this.notificationServiceUrl, {
-          packageId: pkg.id,
+          packageId: pkg.id || pkg._id,
           receiverName: pkg.receiver,
           message: 'Teslim Edildi',
         })
       );
-      this.logger.log(`Notification sent for package ${pkg.id}`);
+      this.logger.log(`Notification sent for package ${pkg.id || pkg._id}`);
     } catch (error) {
-      this.logger.error(`Failed to send notification for package ${pkg.id}:`, error.message);
+      this.logger.error(`Failed to send notification for package ${pkg.id || pkg._id}:`, error.message);
     }
   }
 }
