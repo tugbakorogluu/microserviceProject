@@ -1,0 +1,75 @@
+services:
+  # RabbitMQ - Message Broker
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: smart_tracking_rabbitmq
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservice_network
+
+  # MongoDB for Package Service
+  mongo_package:
+    image: mongo:7.0
+    container_name: smart_tracking_mongo_package
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: package_db
+    volumes:
+      - mongo_package_data:/data/db
+    networks:
+      - microservice_network
+
+  # MongoDB for Tracking Service
+  mongo_tracking:
+    image: mongo:7.0
+    container_name: smart_tracking_mongo_tracking
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: tracking_db
+    volumes:
+      - mongo_tracking_data:/data/db
+    networks:
+      - microservice_network
+
+  # MongoDB for Notification Service
+  mongo_notification:
+    image: mongo:7.0
+    container_name: smart_tracking_mongo_notification
+    ports:
+      - "27019:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: notification_db
+    volumes:
+      - mongo_notification_data:/data/db
+    networks:
+      - microservice_network
+
+volumes:
+  rabbitmq_data:
+  mongo_package_data:
+  mongo_tracking_data:
+  mongo_notification_data:
+
+networks:
+  microservice_network:
+    driver: bridge
