@@ -2,7 +2,6 @@ services:
   # RabbitMQ - Message Broker
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: smart_tracking_rabbitmq
     ports:
       - "5672:5672"    # AMQP port
       - "15672:15672"  # Management UI
@@ -11,18 +10,12 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: rabbitmq-diagnostics ping
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - microservice_network
 
   # MongoDB for Package Service
   mongo_package:
     image: mongo:7.0
-    container_name: smart_tracking_mongo_package
     ports:
       - "27017:27017"
     environment:
@@ -30,14 +23,13 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: rootpassword
       MONGO_INITDB_DATABASE: package_db
     volumes:
-      - mongo_package_data:/data/db
+      - mongo_package_data:/data/db  # İsmi atanmış volume kullanıyoruz
     networks:
       - microservice_network
 
   # MongoDB for Tracking Service
   mongo_tracking:
     image: mongo:7.0
-    container_name: smart_tracking_mongo_tracking
     ports:
       - "27018:27017"
     environment:
@@ -52,7 +44,6 @@ services:
   # MongoDB for Notification Service
   mongo_notification:
     image: mongo:7.0
-    container_name: smart_tracking_mongo_notification
     ports:
       - "27019:27017"
     environment:
@@ -63,12 +54,11 @@ services:
       - mongo_notification_data:/data/db
     networks:
       - microservice_network
-
   # Package Service
   package-service:
+    image: smart_tracking_package_service
     build:
       context: ./package-service
-    container_name: smart_tracking_package_service
     ports:
       - "3001:3001"
     environment:
@@ -83,18 +73,16 @@ services:
       PACKAGE_EXCHANGE_TYPE: topic
       NODE_ENV: production
     depends_on:
-      rabbitmq:
-        condition: service_healthy
-      mongo_package:
-        condition: service_started
+      - rabbitmq
+      - mongo_package
     networks:
       - microservice_network
 
   # Tracking Service
   tracking-service:
+    image: smart_tracking_tracking_service
     build:
       context: ./tracking-service
-    container_name: smart_tracking_tracking_service
     ports:
       - "3002:3002"
     environment:
@@ -112,18 +100,16 @@ services:
       STATUS_SIMULATION_INTERVAL: 10000
       NODE_ENV: production
     depends_on:
-      rabbitmq:
-        condition: service_healthy
-      mongo_tracking:
-        condition: service_started
+      - rabbitmq
+      - mongo_tracking
     networks:
       - microservice_network
 
   # Notification Service
   notification-service:
+    image: smart_tracking_notification_service
     build:
       context: ./notification-service
-    container_name: smart_tracking_notification_service
     ports:
       - "3003:3003"
     environment:
@@ -139,22 +125,20 @@ services:
       PACKAGE_DELIVERED_QUEUE: notification.package.delivered.queue
       NODE_ENV: production
     depends_on:
-      rabbitmq:
-        condition: service_healthy
-      mongo_notification:
-        condition: service_started
+      - rabbitmq
+      - mongo_notification
     networks:
       - microservice_network
 
   # Web Dashboard
   dashboard:
+    image: smart_tracking_dashboard
     build:
       context: ./dashboard
       args:
         - NEXT_PUBLIC_PACKAGE_SERVICE_URL=http://localhost:3001
         - NEXT_PUBLIC_TRACKING_SERVICE_URL=http://localhost:3002
         - NEXT_PUBLIC_NOTIFICATION_SERVICE_URL=http://localhost:3003
-    container_name: smart_tracking_dashboard
     ports:
       - "3000:3000"
     depends_on:
@@ -172,4 +156,4 @@ volumes:
 
 networks:
   microservice_network:
-    driver: bridge
+    driver: overlay 
