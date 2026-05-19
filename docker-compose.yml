@@ -64,6 +64,106 @@ services:
     networks:
       - microservice_network
 
+  # Package Service
+  package-service:
+    build:
+      context: ./package-service
+    container_name: smart_tracking_package_service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      MONGODB_URI: mongodb://root:rootpassword@mongo_package:27017/package_db?authSource=admin
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: /
+      PACKAGE_EXCHANGE: package.exchange
+      PACKAGE_EXCHANGE_TYPE: topic
+      NODE_ENV: production
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo_package:
+        condition: service_started
+    networks:
+      - microservice_network
+
+  # Tracking Service
+  tracking-service:
+    build:
+      context: ./tracking-service
+    container_name: smart_tracking_tracking_service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      MONGODB_URI: mongodb://root:rootpassword@mongo_tracking:27017/tracking_db?authSource=admin
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: /
+      PACKAGE_EXCHANGE: package.exchange
+      TRACKING_EXCHANGE: tracking.exchange
+      TRACKING_EXCHANGE_TYPE: topic
+      PACKAGE_CREATED_QUEUE: tracking.package.created.queue
+      STATUS_SIMULATION_INTERVAL: 10000
+      NODE_ENV: production
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo_tracking:
+        condition: service_started
+    networks:
+      - microservice_network
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./notification-service
+    container_name: smart_tracking_notification_service
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      MONGODB_URI: mongodb://root:rootpassword@mongo_notification:27017/notification_db?authSource=admin
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: /
+      TRACKING_EXCHANGE: tracking.exchange
+      TRACKING_EXCHANGE_TYPE: topic
+      PACKAGE_DELIVERED_QUEUE: notification.package.delivered.queue
+      NODE_ENV: production
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo_notification:
+        condition: service_started
+    networks:
+      - microservice_network
+
+  # Web Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        - NEXT_PUBLIC_PACKAGE_SERVICE_URL=http://localhost:3001
+        - NEXT_PUBLIC_TRACKING_SERVICE_URL=http://localhost:3002
+        - NEXT_PUBLIC_NOTIFICATION_SERVICE_URL=http://localhost:3003
+    container_name: smart_tracking_dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - package-service
+      - tracking-service
+      - notification-service
+    networks:
+      - microservice_network
+
 volumes:
   rabbitmq_data:
   mongo_package_data:

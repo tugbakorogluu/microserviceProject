@@ -87,9 +87,9 @@ export class TrackingService implements OnModuleInit {
 
   /**
    * Start status simulation for a specific package
-   * Automatically transitions package through statuses
+   * Automatically transitions package through statuses, resuming from the current status if provided
    */
-  private startStatusSimulation(barcode: string) {
+  private startStatusSimulation(barcode: string, currentStatus?: string) {
     const simulationInterval = parseInt(
       process.env.STATUS_SIMULATION_INTERVAL || '10000',
     );
@@ -99,7 +99,15 @@ export class TrackingService implements OnModuleInit {
       clearInterval(this.simulationIntervals.get(barcode));
     }
 
+    // Belirtilen statünün index'ini bul, eğer yoksa veya geçersizse 0'dan (Hazırlanıyor) başla.
+    // Eğer paket zaten belirli bir statüde ise (örn: "Yolda" - index 1), bir sonraki durumdan (index 2 - "Dağıtımda") devam etmeli.
     let currentStatusIndex = 0;
+    if (currentStatus) {
+      const index = this.statusFlow.indexOf(currentStatus);
+      if (index !== -1) {
+        currentStatusIndex = index + 1;
+      }
+    }
 
     const intervalId = setInterval(async () => {
       try {
@@ -132,6 +140,10 @@ export class TrackingService implements OnModuleInit {
           }
 
           currentStatusIndex++;
+        } else {
+          // Eğer akış tamamlandıysa ama interval hala açık kaldıysa temizle
+          clearInterval(intervalId);
+          this.simulationIntervals.delete(barcode);
         }
       } catch (error) {
         this.logger.error(
@@ -142,7 +154,7 @@ export class TrackingService implements OnModuleInit {
 
     this.simulationIntervals.set(barcode, intervalId);
     this.logger.log(
-      `⏱️ Simulation started for barcode: ${barcode} (interval: ${simulationInterval}ms)`,
+      `⏱️ Simulation started/resumed for barcode: ${barcode} (current status: ${currentStatus || 'Hazırlanıyor'}, interval: ${simulationInterval}ms)`,
     );
   }
 
@@ -195,7 +207,7 @@ export class TrackingService implements OnModuleInit {
       );
 
       for (const pkg of pendingPackages) {
-        this.startStatusSimulation(pkg.barcode);
+        this.startStatusSimulation(pkg.barcode, pkg.currentStatus);
       }
     } catch (error) {
       this.logger.error(
