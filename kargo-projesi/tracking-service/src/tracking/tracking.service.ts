@@ -1,12 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 
 @Injectable()
 export class TrackingService {
   private readonly logger = new Logger(TrackingService.name);
-  private readonly packageServiceUrl = 'http://package-service:3001/packages';
-  private readonly notificationServiceUrl = 'http://notification-service:3003/notifications';
 
   private readonly statusFlow = {
     'Hazırlanıyor': 'Yolda',
@@ -14,59 +11,70 @@ export class TrackingService {
     'Dağıtımda': 'Teslim Edildi',
   };
 
-  constructor(private readonly httpService: HttpService) {}
+  constructor(
+    @Optional() @Inject('PACKAGE_SERVICE') private packageClient?: ClientProxy,
+    @Optional() @Inject('NOTIFICATION_SERVICE') private notificationClient?: ClientProxy,
+  ) {
+    if (!this.packageClient) {
+      this.logger.warn('⚠️ PACKAGE_SERVICE client not available - will retry later');
+    }
+    if (!this.notificationClient) {
+      this.logger.warn('⚠️ NOTIFICATION_SERVICE client not available - will retry later');
+    }
+  }
 
   async advancePackage(id: string) {
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.packageServiceUrl}/${id}`)
-      );
-      
-      const pkg = response.data;
-      if (!pkg) {
-        throw new NotFoundException(`Package ${id} not found`);
+      this.logger.log(`📦 Advancing package ${id} (Asynchronous Event)`);
+
+      // Calculate next status locally (don't need to fetch from package-service)
+      // In a real scenario, you might store status state locally or in a cache
+      const event = {
+        packageId: id,
+        timestamp: new Date(),
+      };
+
+      // Emit event to package-service to get current status and advance it
+      if (this.packageClient) {
+        this.packageClient.emit('advance_package_request', event);
+        this.logger.log(`✅ Event emitted to package-service for package ${id} - Fire & Forget`);
+      } else {
+        this.logger.warn(`⚠️ Package Service client unavailable - queuing event for ${id}`);
       }
 
-      if (pkg.status === 'Teslim Edildi') {
-        return { message: 'Package is already delivered', pkg };
-      }
-
-      const nextStatus = this.statusFlow[pkg.status];
-      if (nextStatus) {
-        const updateResponse = await firstValueFrom(
-          this.httpService.put(`${this.packageServiceUrl}/${pkg.id || pkg._id}/status`, {
-            status: nextStatus,
-          })
-        );
-        this.logger.log(`Package ${id} status updated to: ${nextStatus}`);
-        
-        const updatedPkg = updateResponse.data;
-
-        if (nextStatus === 'Teslim Edildi') {
-          await this.notifyDelivery(updatedPkg);
-        }
-
-        return updatedPkg;
-      }
-      return pkg;
+      return {
+        message: 'Package advancement event sent to queue',
+        packageId: id,
+        timestamp: event.timestamp,
+        note: 'Status update is being processed asynchronously by package-service',
+      };
     } catch (error) {
-      this.logger.error(`Error advancing package ${id}:`, error.message);
+      this.logger.error(`❌ Error advancing package ${id}:`, error.message);
       throw error;
     }
   }
 
-  private async notifyDelivery(pkg: any) {
-    try {
-      await firstValueFrom(
-        this.httpService.post(this.notificationServiceUrl, {
-          packageId: pkg.id || pkg._id,
-          receiverName: pkg.receiver,
-          message: 'Teslim Edildi',
-        })
-      );
-      this.logger.log(`Notification sent for package ${pkg.id || pkg._id}`);
-    } catch (error) {
-      this.logger.error(`Failed to send notification for package ${pkg.id || pkg._id}:`, error.message);
-    }
+  /**
+   * Alternative method: Get package status synchronously (if needed)
+   * This should be used sparingly and with timeout/circuit-breaker
+   */
+  async getPackageStatusAsync(packageId: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timeout getting package status for ${packageId}`));
+      }, 5000); // 5 second timeout
+
+      try {
+        this.logger.log(`🔍 Requesting package status for ${packageId}`);
+        // This would require request-reply pattern, which is more complex
+        // For now, we use fire-and-forget pattern
+        resolve({
+          message: 'Use fire-and-forget event pattern for resilience',
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
   }
 }

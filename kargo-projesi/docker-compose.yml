@@ -10,6 +10,25 @@ services:
       - mongodb_data:/data/db
     networks:
       - kargo_network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: kargo-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - kargo_network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   package-service:
     build:
@@ -18,12 +37,17 @@ services:
     container_name: kargo-package-service
     ports:
       - "3001:3001"
-    depends_on:
-      - mongodb
     networks:
       - kargo_network
     environment:
       - NODE_ENV=production
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   notification-service:
     build:
@@ -32,12 +56,17 @@ services:
     container_name: kargo-notification-service
     ports:
       - "3003:3003"
-    depends_on:
-      - mongodb
     networks:
       - kargo_network
     environment:
       - NODE_ENV=production
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   tracking-service:
     build:
@@ -46,14 +75,17 @@ services:
     container_name: kargo-tracking-service
     ports:
       - "3002:3002"
-    depends_on:
-      - mongodb
-      - package-service
-      - notification-service
     networks:
       - kargo_network
     environment:
       - NODE_ENV=production
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:
@@ -64,6 +96,7 @@ services:
       - "8080:80"
     networks:
       - kargo_network
+    restart: unless-stopped
 
 volumes:
   mongodb_data:
